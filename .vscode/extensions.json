@@ -1,0 +1,17 @@
+{
+  "recommendations": [
+    "catppuccin.catppuccin-vsc",
+    "catppuccin.catppuccin-vsc-icons",
+    "johnpapa.vscode-peacock",
+    "eamodio.gitlens",
+    "usernamehw.errorlens",
+    "gruntfuggly.todo-tree",
+    "aaron-bond.better-comments",
+    "alefragnani.bookmarks",
+    "oderwat.indent-rainbow",
+    "christian-kohler.path-intellisense",
+    "streetsidesoftware.code-spell-checker",
+    "xdebug.php-debug",
+    "lostintangent.gitdoc"
+  ]
+}
