@@ -6,7 +6,8 @@ if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] == true) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username']; # SOURCE: User input the username 
+    $username = $_POST['username'];
+    # SOURCE: User input the username 
 
     include('includes/db_connect.php');
     $ret = pg_query($db, "select * from users where username='" . $username . "';");
