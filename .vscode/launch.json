@@ -9,7 +9,6 @@
       "pathMappings": {
         "/var/www/html": "${workspaceFolder}/app"
       },
-      "hostname": "127.0.0.1",
       "log": true
     }
   ]
