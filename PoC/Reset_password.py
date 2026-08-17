@@ -1,5 +1,4 @@
 import requests
-import argparse
 import sys
 import subprocess
 import time
