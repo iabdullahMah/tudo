@@ -1,11 +1,15 @@
-FROM php:8.5-apache
+FROM php:8.4-apache
 
 # Install PgSQL extension
 RUN apt-get -q update && apt-get install -q -y libpq-dev && \
     docker-php-ext-install pgsql
 
-# Install Xdebug extension
-RUN pecl install xdebug-3.5.0 && docker-php-ext-enable xdebug
+# Install Xdebug from source (PECL channel is down; Debian trixie has no php8.4-xdebug package)
+RUN apt-get -q update && apt-get install -q -y git $PHPIZE_DEPS && \
+    git clone --depth 1 https://github.com/xdebug/xdebug.git /usr/src/xdebug && \
+    cd /usr/src/xdebug && phpize && ./configure && make && make install && \
+    docker-php-ext-enable xdebug && \
+    rm -rf /usr/src/xdebug
 
 # Configure PHP.ini for debugging
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
