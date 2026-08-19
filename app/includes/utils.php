@@ -40,7 +40,7 @@ class Log
         $this->f = $f;
         $this->m = $m;
     }
-
+    # SINK: After the TAINT this sink triggered and run the malicious payload 
     public function __destruct()
     {
         file_put_contents($this->f, $this->m, FILE_APPEND);
