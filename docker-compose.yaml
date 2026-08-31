@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: docker/app/Dockerfile
     ports:
-      - "8000:80"
+      - "${LAB_PORT:-8000}:80"
     extra_hosts:
       host.docker.internal: host-gateway # Automatically resolves host IP (used by Xdebug)
   db:
