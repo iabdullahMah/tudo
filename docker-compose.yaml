@@ -5,7 +5,10 @@ services:
       context: .
       dockerfile: docker/app/Dockerfile
     ports:
-      - "${LAB_PORT:-8000}:80"
+      # Bind to localhost + the tailnet IP only — never all interfaces (LAN/WAN stay blind).
+      # LAB_BIND defaults to this pi5's Tailscale IP; override per host via labctl/.env.
+      - "127.0.0.1:${LAB_PORT:-8000}:80"
+      - "${LAB_BIND:-100.113.26.123}:${LAB_PORT:-8000}:80"
     extra_hosts:
       host.docker.internal: host-gateway # Automatically resolves host IP (used by Xdebug)
   db:

